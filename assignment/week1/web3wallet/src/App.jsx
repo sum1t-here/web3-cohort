@@ -1,80 +1,165 @@
 import { useState } from "react";
-import { generateMnemonic, mnemonicToSeedSync } from "bip39";
-import { Buffer } from "buffer"; // Import Buffer
-import { derivePath } from "ed25519-hd-key";
-import nacl from "tweetnacl";
-import { Keypair } from "@solana/web3.js";
-window.Buffer = Buffer; // Assign Buffer to window
+import axios from "axios"; // Ensure you have axios installed
 
 function App() {
-  const [mnemonic, setMnemonic] = useState("");
-  const [wallet, setWallet] = useState([]);
+  const [solMnemonic, setSolMnemonic] = useState("");
+  const [solWallets, setSolWallets] = useState([]);
 
-  function handleGenerateMnemonic() {
-    const newMnemonic = generateMnemonic();
-    setMnemonic(newMnemonic);
-    setWallet([]);
+  const [ethMnemonic, setEthMnemonic] = useState("");
+  const [ethWallets, setEthWallets] = useState([]);
+
+  async function handleGenerateSolMnemonic() {
+    try {
+      const response = await axios.get(
+        "http://localhost:3000/generate-sol-mnemonic"
+      );
+      setSolMnemonic(response.data.mnemonic);
+      setSolWallets([]);
+    } catch (error) {
+      console.error("Error generating Solana mnemonic:", error);
+    }
   }
 
-  function handleCreateWallet() {
-    if (!mnemonic) return console.log("Generate Mnemonic");
-
-    const seed = mnemonicToSeedSync(mnemonic);
-    const newWallets = [];
-
-    for (let i = 0; i < 4; i++) {
-      try {
-        const path = `m/44'/501'/${i}'/0'`; // Derivation path
-        const derivedSeed = derivePath(path, seed.toString("hex")).key;
-        const secret = nacl.sign.keyPair.fromSeed(derivedSeed).secretKey;
-        const keypair = Keypair.fromSecretKey(secret);
-        newWallets.push(keypair.publicKey.toBase58());
-      } catch (error) {
-        console.error("Error creating wallet:", error);
-      }
+  async function handleCreateSolWallet() {
+    if (!solMnemonic) {
+      console.log("Generate Solana Mnemonic first");
+      return;
     }
 
-    setWallet(newWallets);
+    try {
+      const response = await axios.post(
+        "http://localhost:3000/create-sol-wallets",
+        {
+          mnemonic: solMnemonic,
+        }
+      );
+
+      setSolWallets(response.data.allWallets);
+    } catch (error) {
+      console.error("Error creating Solana wallet:", error);
+    }
   }
+
+  async function handleGenerateEthMnemonic() {
+    try {
+      const response = await axios.get(
+        "http://localhost:3000/generate-eth-mnemonic"
+      );
+      setEthMnemonic(response.data.mnemonic);
+      setEthWallets([]);
+    } catch (error) {
+      console.error("Error generating Ethereum mnemonic:", error);
+    }
+  }
+
+  async function handleCreateEthWallet() {
+    if (!ethMnemonic) {
+      console.log("Generate Ethereum Mnemonic first");
+      return;
+    }
+
+    try {
+      const response = await axios.post(
+        "http://localhost:3000/create-eth-wallets",
+        {
+          mnemonic: ethMnemonic,
+        }
+      );
+
+      setEthWallets(response.data.allWallets);
+    } catch (error) {
+      console.error("Error creating Ethereum wallet:", error);
+    }
+  }
+
   return (
     <div className="flex flex-col justify-center items-center min-h-screen">
-      <h1 className=" text-4xl text-blue-700 font-bold">Web 3 - Wallet</h1>
-      <div className="p-6">
+      <h1 className="text-4xl text-blue-700 font-bold">Web 3 - Wallet</h1>
+      <div className="p-6 flex flex-col">
+        {/* Solana Section */}
+        <div>
+          <button
+            className="bg-blue-500 p-4 text-white rounded-lg"
+            onClick={handleGenerateSolMnemonic}
+          >
+            Generate Mnemonic for Solana Wallet
+          </button>
+        </div>
+
+        {solMnemonic && (
+          <div className="mt-4 p-4 border rounded-lg bg-gray-100">
+            <h2 className="text-lg font-semibold">Your Solana Mnemonic:</h2>
+            <p>{solMnemonic}</p>
+          </div>
+        )}
         <button
-          className=" bg-blue-500 p-4 text-white rounded-lg"
-          onClick={handleGenerateMnemonic}
+          className="bg-green-500 p-4 text-white rounded-lg mt-4"
+          onClick={handleCreateSolWallet}
         >
-          Generate Mnemonic
+          Create Solana Wallet
         </button>
+        <div>
+          {!solMnemonic && (
+            <p className="text-red-600">Generate mnemonic first</p>
+          )}
+        </div>
+        {solWallets.length > 0 && (
+          <div className="mt-4 p-4 border rounded-lg bg-gray-100">
+            <h2 className="text-lg font-semibold">Solana Wallets:</h2>
+            <ul>
+              {solWallets.map((wallet, index) => (
+                <li key={index} className="text-sm text-gray-700">
+                  <strong>Public Key:</strong> {wallet.publicKey} <br />
+                  {/* Note: Private Key is commented out */}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
-      {mnemonic && (
-        <div className="mt-4 p-4 border rounded-lg bg-gray-100">
-          <h2 className="text-lg font-semibold">Your Mnemonic:</h2>
-          <p>{mnemonic}</p>
-        </div>
-      )}
-      <button
-        className="bg-green-500 p-4 text-white rounded-lg mt-4"
-        onClick={handleCreateWallet}
-      >
-        Create Wallets
-      </button>
+      {/* Ethereum Section */}
       <div>
-        {!mnemonic && <p className="text-red-600">Generate mnemonic</p>}
-      </div>
-      {wallet.length > 0 && (
-        <div className="mt-4 p-4 border rounded-lg bg-gray-100">
-          <h2 className="text-lg font-semibold">Wallets:</h2>
-          <ul>
-            {wallet.map((publicKey, index) => (
-              <li key={index} className="text-sm text-gray-700">
-                {publicKey}
-              </li>
-            ))}
-          </ul>
+        <div>
+          <button
+            className="bg-blue-500 p-4 text-white rounded-lg"
+            onClick={handleGenerateEthMnemonic}
+          >
+            Generate Mnemonic for Ethereum Wallet
+          </button>
         </div>
-      )}
+
+        {ethMnemonic && (
+          <div className="mt-4 p-4 border rounded-lg bg-gray-100">
+            <h2 className="text-lg font-semibold">Your Ethereum Mnemonic:</h2>
+            <p>{ethMnemonic}</p>
+          </div>
+        )}
+        <button
+          className="bg-green-500 p-4 text-white rounded-lg mt-4 w-full"
+          onClick={handleCreateEthWallet}
+        >
+          Create Ethereum Wallet
+        </button>
+        <div>
+          {!ethMnemonic && (
+            <p className="text-red-600">Generate mnemonic first</p>
+          )}
+        </div>
+        {ethWallets.length > 0 && (
+          <div className="mt-4 p-4 border rounded-lg bg-gray-100">
+            <h2 className="text-lg font-semibold">Ethereum Wallets:</h2>
+            <ul>
+              {ethWallets.map((wallet, index) => (
+                <li key={index} className="text-sm text-gray-700">
+                  <strong>Address:</strong> {wallet.address} <br />
+                  {/* Note: Private Key is commented out */}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
