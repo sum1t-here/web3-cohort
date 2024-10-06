@@ -17,9 +17,13 @@ function App() {
         }}
       >
         Create Seed Phrase
-      </button>
-      <SolanaWallet />
-      <EthWallet />
+      </button>{" "}
+      {mnemonic && (
+        <>
+          <SolanaWallet mnemonic={mnemonic} />
+          <EthWallet mnemonic={mnemonic} />
+        </>
+      )}
     </>
   );
 }
