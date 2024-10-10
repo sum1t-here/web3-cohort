@@ -56,11 +56,15 @@ import { useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { Keypair, SystemProgram, Transaction } from "@solana/web3.js";
 import {
-  createInitializeMint2Instruction,
-  getMinimumBalanceForRentExemptAccount,
-  MINT_SIZE,
-  TOKEN_PROGRAM_ID,
+  createInitializeMetadataPointerInstruction,
+  createInitializeMintInstruction,
+  ExtensionType,
+  getMintLen,
+  LENGTH_SIZE,
+  TOKEN_2022_PROGRAM_ID,
+  TYPE_SIZE,
 } from "@solana/spl-token";
+import { createInitializeInstruction, pack } from "@solana/spl-token-metadata";
 
 export function TokenLaunchpad() {
   // Using state for form values
@@ -74,31 +78,78 @@ export function TokenLaunchpad() {
 
   // Function to create a token
   async function createToken() {
-    const mintKeyPair = Keypair.generate();
-    const lamports = await getMinimumBalanceForRentExemptAccount(connection);
+    // Generate a new keypair for the token mint
+    const mintKeypair = Keypair.generate(); // Keypair for the mint (token creation)
 
-    const transaction = new Transaction.add()(
-      SystemProgram.createAccount({
-        fromPubkey: wallet.publicKey,
-        newAccountPubkey: mintKeyPair.publicKey,
-        space: MINT_SIZE,
-        lamports,
-        programId: TOKEN_PROGRAM_ID,
-      }),
-      createInitializeMint2Instruction(
-        mintKeyPair,
-        9,
-        wallet.publicKey,
-        wallet.publicKey,
-        TOKEN_PROGRAM_ID
-      )
+    // Define metadata for the token
+    const metadata = {
+      mint: mintKeypair.publicKey, // Public key of the mint account (the token itself)
+      name: "QIQI", // Token name (limited to a specific number of characters)
+      symbol: "GI", // Token symbol (needs padding to match the length requirement)
+      uri: "https://cdn.100xdevs.com/metadata.json", // URI pointing to metadata file (can contain image, description, etc.)
+      additionalMetadata: [], // Placeholder for any additional metadata (optional)
+    };
+
+    // Calculate the space needed for the mint and metadata, using the new metadata pointer extension
+    const mintLen = getMintLen([ExtensionType.MetadataPointer]); // Get required size for the mint account with metadata extension
+    const metadataLen = TYPE_SIZE + LENGTH_SIZE + pack(metadata).length; // Calculate total space for metadata (with type, length, and packed data)
+
+    // Get the minimum number of lamports required to make the account rent-exempt
+    const lamports = await connection.getMinimumBalanceForRentExemption(
+      mintLen + metadataLen
     );
-    (transaction.feePayer = wallet.publicKey),
-      (transaction.recentBlockhash = await connection.getLatestBlockhash());
-    transaction.partialSign(mintKeyPair);
 
+    // Create a new transaction to set up the token mint and initialize it with metadata
+    const transaction = new Transaction().add(
+      // 1. Create a new account for the mint (the token itself)
+      SystemProgram.createAccount({
+        fromPubkey: wallet.publicKey, // Wallet's public key (payer of the transaction)
+        newAccountPubkey: mintKeypair.publicKey, // Public key for the new mint account
+        space: mintLen, // Size of the account (mint length including metadata)
+        lamports, // Amount of lamports to make the account rent-exempt
+        programId: TOKEN_2022_PROGRAM_ID, // Program ID for the SPL Token 2022 program
+      }),
+      // 2. Initialize metadata pointer for the mint
+      createInitializeMetadataPointerInstruction(
+        mintKeypair.publicKey, // Mint account public key
+        wallet.publicKey, // Mint authority
+        mintKeypair.publicKey, // The same mint account holds the metadata pointer
+        TOKEN_2022_PROGRAM_ID // Program ID for the SPL Token 2022 program
+      ),
+      // 3. Initialize the mint with the specified decimals and authorities
+      createInitializeMintInstruction(
+        mintKeypair.publicKey, // Mint account public key
+        9, // Token decimals (similar to how SOL has 9 decimals)
+        wallet.publicKey, // Mint authority (controls minting)
+        null, // Freeze authority (optional, null means no freeze authority)
+        TOKEN_2022_PROGRAM_ID // Program ID for the SPL Token 2022 program
+      ),
+      // 4. Initialize metadata for the token using the metadata package
+      createInitializeInstruction({
+        programId: TOKEN_2022_PROGRAM_ID, // Program ID for the SPL Token 2022 program
+        mint: mintKeypair.publicKey, // Mint public key (where the token metadata is stored)
+        metadata: mintKeypair.publicKey, // The same mint account holds the metadata
+        name: metadata.name, // Name of the token
+        symbol: metadata.symbol, // Symbol of the token
+        uri: metadata.uri, // URI pointing to the token's metadata file
+        mintAuthority: wallet.publicKey, // Mint authority (the wallet creating the token)
+        updateAuthority: wallet.publicKey, // Authority to update metadata
+      })
+    );
+
+    // Set the wallet as the fee payer
+    transaction.feePayer = wallet.publicKey;
+
+    // Get the latest blockhash to include in the transaction for recentBlockhash
+    transaction.recentBlockhash = (
+      await connection.getLatestBlockhash()
+    ).blockhash;
+
+    // Partially sign the transaction with the mintKeypair (since it's a new account being created)
+    transaction.partialSign(mintKeypair);
+
+    // Send the signed transaction to the blockchain
     await wallet.sendTransaction(transaction, connection);
-    console.log(`Token mint created at ${mintKeyPair.publicKey.toBase58()}`);
   }
 
   return (
