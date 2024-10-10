@@ -56,9 +56,12 @@ import { useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { Keypair, SystemProgram, Transaction } from "@solana/web3.js";
 import {
+  createAssociatedTokenAccountInstruction,
   createInitializeMetadataPointerInstruction,
   createInitializeMintInstruction,
+  createMintToInstruction,
   ExtensionType,
+  getAssociatedTokenAddressSync,
   getMintLen,
   LENGTH_SIZE,
   TOKEN_2022_PROGRAM_ID,
@@ -150,6 +153,53 @@ export function TokenLaunchpad() {
 
     // Send the signed transaction to the blockchain
     await wallet.sendTransaction(transaction, connection);
+
+    // Log the public key of the newly created token mint (the public address of the token)
+    console.log(`Token mint created at ${mintKeypair.publicKey.toBase58()}`);
+
+    // 1. Get the associated token account for the wallet
+    // The associated token account is where the tokens for the wallet holder will be stored.
+    const associatedToken = getAssociatedTokenAddressSync(
+      mintKeypair.publicKey, // The public key of the token mint (the new token you just created)
+      wallet.publicKey, // The wallet's public key (the account that will receive and store the tokens)
+      false, // Set to `false` because this isn't a program-derived address (PDA)
+      TOKEN_2022_PROGRAM_ID // The program ID for the SPL Token 2022 program (used for token management)
+    );
+
+    // Log the associated token account's public key (this is where the tokens will be stored)
+    console.log(associatedToken.toBase58());
+
+    // 2. Create a transaction to create the associated token account for the wallet
+    const transaction2 = new Transaction().add(
+      createAssociatedTokenAccountInstruction(
+        wallet.publicKey, // Payer of the transaction (the wallet that is creating the token account)
+        associatedToken, // The associated token account's address (where the wallet's tokens will be stored)
+        wallet.publicKey, // Owner of the associated token account (the same wallet creating it)
+        mintKeypair.publicKey, // The mint (token) that this associated account will hold
+        TOKEN_2022_PROGRAM_ID // The program ID for the SPL Token 2022 program
+      )
+    );
+
+    // Send the transaction to create the associated token account on the blockchain
+    await wallet.sendTransaction(transaction2, connection);
+
+    // 3. Create another transaction to mint tokens to the newly created associated token account
+    const transaction3 = new Transaction().add(
+      createMintToInstruction(
+        mintKeypair.publicKey, // The token mint's public key (the newly created token)
+        associatedToken, // The associated token account (where the minted tokens will be sent)
+        wallet.publicKey, // Mint authority (the wallet that has permission to mint the tokens)
+        1000000000, // The amount to mint (in the smallest unit of the token, i.e., 1 token with 9 decimals = 1,000,000,000 units)
+        [], // No additional signers needed here
+        TOKEN_2022_PROGRAM_ID // The program ID for the SPL Token 2022 program
+      )
+    );
+
+    // Send the transaction to mint the tokens to the associated token account
+    await wallet.sendTransaction(transaction3, connection);
+
+    // Log that the minting process is complete
+    console.log("Minted!");
   }
 
   return (
